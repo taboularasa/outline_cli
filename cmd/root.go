@@ -195,6 +195,81 @@ var testCmd = &cobra.Command{
 	},
 }
 
+var updateCmd = &cobra.Command{
+	Use:   "update [docID]",
+	Short: "Update document metadata",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			return fmt.Errorf("loading config: %w", err)
+		}
+
+		url := fmt.Sprintf("%s/api/documents.update", normalizeURL(cfg.OutlineURL))
+		payload := struct {
+			ID      string `json:"id"`
+			Publish bool   `json:"publish"`
+		}{
+			ID:      args[0],
+			Publish: true,
+		}
+
+		body, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("marshaling payload: %w", err)
+		}
+
+		req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+		if err != nil {
+			return fmt.Errorf("creating request: %w", err)
+		}
+
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", cfg.APIKey))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("executing request: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		}
+
+		fmt.Printf("Successfully updated document %s\n", args[0])
+		return nil
+	},
+}
+
+var createCmd = &cobra.Command{
+	Use:   "create [title]",
+	Short: "Create a new document",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			return fmt.Errorf("loading config: %w", err)
+		}
+
+		client := clientFactory(cfg)
+		doc, err := client.CreateDocument(
+			args[0],
+			"# "+args[0]+"\n\nNew document created via CLI.",
+			"8f2de8e6-a423-4960-8802-18c0da301989", // Infrastructure collection ID
+			verbose,
+		)
+		if err != nil {
+			return fmt.Errorf("creating document: %w", err)
+		}
+
+		fmt.Printf("Successfully created document with ID: %s\n", doc.ID)
+		return nil
+	},
+}
+
 func maskAPIKey(key string) string {
 	if len(key) <= 8 {
 		return "****"
@@ -215,4 +290,6 @@ func init() {
 	RootCmd.AddCommand(debugCmd)
 	RootCmd.AddCommand(listCmd)
 	RootCmd.AddCommand(testCmd)
+	RootCmd.AddCommand(updateCmd)
+	RootCmd.AddCommand(createCmd)
 }

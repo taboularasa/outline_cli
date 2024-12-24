@@ -14,6 +14,7 @@ type Client interface {
 	GetDocument(docID string, verbose bool) (*Document, error)
 	UpdateDocument(docID string, content string, verbose bool) error
 	ListDocuments(verbose bool) ([]Document, error)
+	CreateDocument(title string, text string, collectionId string, verbose bool) (*Document, error)
 }
 
 // ClientFactory is a function type that creates new API clients
@@ -119,12 +120,15 @@ func (c *client) GetDocument(docID string, verbose bool) (*Document, error) {
 func (c *client) UpdateDocument(docID string, content string, verbose bool) error {
 	url := fmt.Sprintf("%s/api/documents.update", normalizeURL(c.config.OutlineURL))
 
+	// Include publish flag in the update payload
 	payload := struct {
-		ID   string `json:"id"`
-		Text string `json:"text"`
+		ID      string `json:"id"`
+		Text    string `json:"text"`
+		Publish bool   `json:"publish"`
 	}{
-		ID:   docID,
-		Text: content,
+		ID:      docID,
+		Text:    content,
+		Publish: true,
 	}
 
 	body, err := json.Marshal(payload)
@@ -142,12 +146,8 @@ func (c *client) UpdateDocument(docID string, content string, verbose bool) erro
 	req.Header.Set("Accept", "application/json")
 
 	if verbose {
-		fmt.Printf("Making request to: %s\n", url)
+		fmt.Printf("Making update request to: %s\n", url)
 		fmt.Printf("Request payload: %s\n", string(body))
-		fmt.Printf("Request headers:\n")
-		for k, v := range req.Header {
-			fmt.Printf("  %s: %s\n", k, v)
-		}
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -222,4 +222,68 @@ func (c *client) ListDocuments(verbose bool) ([]Document, error) {
 	}
 
 	return response.Data, nil
+}
+
+func (c *client) CreateDocument(title string, text string, collectionId string, verbose bool) (*Document, error) {
+	url := fmt.Sprintf("%s/api/documents.create", normalizeURL(c.config.OutlineURL))
+
+	payload := struct {
+		Title        string `json:"title"`
+		Text         string `json:"text"`
+		CollectionId string `json:"collectionId"`
+		Publish      bool   `json:"publish"`
+	}{
+		Title:        title,
+		Text:         text,
+		CollectionId: collectionId,
+		Publish:      true,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling payload: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.config.APIKey))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	if verbose {
+		fmt.Printf("Making create request to: %s\n", url)
+		fmt.Printf("Request payload: %s\n", string(body))
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response body: %w", err)
+	}
+
+	if verbose {
+		fmt.Printf("Response status: %s\n", resp.Status)
+		fmt.Printf("Response body: %s\n", string(respBody))
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(respBody))
+	}
+
+	var response struct {
+		Data Document `json:"data"`
+	}
+	if err := json.Unmarshal(respBody, &response); err != nil {
+		return nil, fmt.Errorf("decoding response: %w", err)
+	}
+
+	return &response.Data, nil
 }
