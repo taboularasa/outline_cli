@@ -85,7 +85,7 @@ func TestPullCommand(t *testing.T) {
 			name:  "successful pull",
 			docID: "doc123",
 			mockClient: &api.MockClient{
-				GetDocumentFunc: func(docID string) (*api.Document, error) {
+				GetDocumentFunc: func(docID string, verbose bool) (*api.Document, error) {
 					return &api.Document{
 						ID:    docID,
 						Title: "Test Doc",
@@ -99,7 +99,7 @@ func TestPullCommand(t *testing.T) {
 			name:  "api error",
 			docID: "doc456",
 			mockClient: &api.MockClient{
-				GetDocumentFunc: func(docID string) (*api.Document, error) {
+				GetDocumentFunc: func(docID string, verbose bool) (*api.Document, error) {
 					return nil, fmt.Errorf("API error")
 				},
 			},
@@ -198,7 +198,7 @@ func TestPushCommand(t *testing.T) {
 			fileExists: true,
 			content:    "# Updated Content",
 			mockClient: &api.MockClient{
-				UpdateDocumentFunc: func(docID string, content string) error {
+				UpdateDocumentFunc: func(docID string, content string, verbose bool) error {
 					if content != "# Updated Content" {
 						return fmt.Errorf("unexpected content: %s", content)
 					}
@@ -211,7 +211,7 @@ func TestPushCommand(t *testing.T) {
 			docID:      "doc456",
 			fileExists: false,
 			mockClient: &api.MockClient{
-				UpdateDocumentFunc: func(docID string, content string) error {
+				UpdateDocumentFunc: func(docID string, content string, verbose bool) error {
 					return nil
 				},
 			},
@@ -225,7 +225,7 @@ func TestPushCommand(t *testing.T) {
 			fileExists: true,
 			content:    "# Content",
 			mockClient: &api.MockClient{
-				UpdateDocumentFunc: func(docID string, content string) error {
+				UpdateDocumentFunc: func(docID string, content string, verbose bool) error {
 					return fmt.Errorf("API error")
 				},
 			},

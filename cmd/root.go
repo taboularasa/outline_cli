@@ -1,15 +1,21 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"outline-cli/api"
 	"outline-cli/config"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
 
 var clientFactory api.ClientFactory = api.DefaultClientFactory
+var verbose bool
 
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
@@ -32,7 +38,7 @@ var pullCmd = &cobra.Command{
 		}
 
 		client := clientFactory(cfg)
-		doc, err := client.GetDocument(args[0])
+		doc, err := client.GetDocument(args[0], verbose)
 		if err != nil {
 			return fmt.Errorf("fetching document: %w", err)
 		}
@@ -64,7 +70,7 @@ var pushCmd = &cobra.Command{
 			return fmt.Errorf("reading file: %w", err)
 		}
 
-		if err := client.UpdateDocument(args[0], string(content)); err != nil {
+		if err := client.UpdateDocument(args[0], string(content), verbose); err != nil {
 			return fmt.Errorf("updating document: %w", err)
 		}
 
@@ -83,8 +89,130 @@ var diffCmd = &cobra.Command{
 	},
 }
 
+var debugCmd = &cobra.Command{
+	Use:   "debug",
+	Short: "Print debug information",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			return fmt.Errorf("loading config: %w", err)
+		}
+
+		fmt.Printf("Configuration:\n")
+		fmt.Printf("  Outline URL: %s\n", cfg.OutlineURL)
+		fmt.Printf("  API Key: %s\n", maskAPIKey(cfg.APIKey))
+		return nil
+	},
+}
+
+var listCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List available documents",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			return fmt.Errorf("loading config: %w", err)
+		}
+
+		client := clientFactory(cfg)
+		docs, err := client.ListDocuments(verbose)
+		if err != nil {
+			return fmt.Errorf("listing documents: %w", err)
+		}
+
+		for _, doc := range docs {
+			fmt.Printf("%s: %s\n", doc.ID, doc.Title)
+		}
+		return nil
+	},
+}
+
+var testCmd = &cobra.Command{
+	Use:   "test",
+	Short: "Test API connection",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			return fmt.Errorf("loading config: %w", err)
+		}
+
+		url := fmt.Sprintf("%s/api/auth.info", normalizeURL(cfg.OutlineURL))
+
+		// Create an empty payload since it's a POST request
+		payload := struct{}{}
+		body, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("marshaling payload: %w", err)
+		}
+
+		req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+		if err != nil {
+			return fmt.Errorf("creating request: %w", err)
+		}
+
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", cfg.APIKey))
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Content-Type", "application/json")
+
+		if verbose {
+			fmt.Printf("Making request to: %s\n", url)
+			fmt.Printf("Request headers:\n")
+			for k, v := range req.Header {
+				fmt.Printf("  %s: %s\n", k, v)
+			}
+		}
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("executing request: %w", err)
+		}
+		defer resp.Body.Close()
+
+		body, err = io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("reading response: %w", err)
+		}
+
+		if verbose {
+			fmt.Printf("Response status: %s\n", resp.Status)
+			fmt.Printf("Response body: %s\n", string(body))
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			var apiError struct {
+				Error   string `json:"error"`
+				Message string `json:"message"`
+			}
+			if err := json.Unmarshal(body, &apiError); err == nil {
+				return fmt.Errorf("API error: %s - %s", apiError.Error, apiError.Message)
+			}
+			return fmt.Errorf("API error: %s", string(body))
+		}
+
+		fmt.Println("API connection successful!")
+		return nil
+	},
+}
+
+func maskAPIKey(key string) string {
+	if len(key) <= 8 {
+		return "****"
+	}
+	return key[:4] + "..." + key[len(key)-4:]
+}
+
+func normalizeURL(baseURL string) string {
+	return strings.TrimRight(baseURL, "/")
+}
+
 func init() {
+	RootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose output")
+
 	RootCmd.AddCommand(pullCmd)
 	RootCmd.AddCommand(pushCmd)
 	RootCmd.AddCommand(diffCmd)
+	RootCmd.AddCommand(debugCmd)
+	RootCmd.AddCommand(listCmd)
+	RootCmd.AddCommand(testCmd)
 }
